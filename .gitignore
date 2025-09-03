@@ -1,1 +1,3 @@
-external/*
+external/imgui/
+external/imgui-node-editor/
+

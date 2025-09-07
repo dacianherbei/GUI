@@ -1,157 +1,246 @@
-//
-// Created by dh on 03/09/2025.
-//
-
 #include "MainWindow.h"
 
 namespace gui
 {
-    void MainWindow::RenderStatusBar()
+
+MainWindow::MainWindow()
+    : m_shouldClose(false)
+    , m_showCreateNewDialog(false)
+    , m_showLoadDialog(false)
+    , m_showConnectDialog(false)
+{
+}
+
+MainWindow::~MainWindow()
+{
+    Shutdown();
+}
+
+bool MainWindow::Initialize()
+{
+    // Setup ImGui configuration
+    ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;  // Enable Keyboard Controls
+
+    // Setup style
+    ImGui::StyleColorsDark();
+
+    return true;
+}
+
+void MainWindow::Render()
+{
+    // Create main window to fill the entire display
+    ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowSize(io.DisplaySize);
+
+    // Window flags for main window
+    ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar;
+    window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
+    window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
+
+    // Main window
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+
+    ImGui::Begin("Exchange Application", nullptr, window_flags);
+    ImGui::PopStyleVar(3);
+
+    // Render menu bar
+    RenderMenuBar();
+
+    // Main content area (without docking, using BeginChild instead)
+    ImGui::BeginChild("MainContent", ImVec2(0, 0), false, ImGuiWindowFlags_None);
+
+    ImGui::Text("Welcome to Exchange Application");
+    ImGui::Text("Use the menu above to create, load, or connect to an exchange.");
+
+    // Display some basic information
+    ImGui::Separator();
+    ImGui::Text("Application status: Ready");
+    ImGui::Text("Time: %.1f seconds", ImGui::GetTime());
+
+    ImGui::EndChild();
+
+    // Handle modal dialogs
+    if (m_showCreateNewDialog)
     {
-        if (ImGui::BeginViewportSideBar("##StatusBar", NULL, ImGuiDir_Down,
-                                        ImGui::GetFrameHeight(), ImGuiWindowFlags_NoScrollbar))
-        {
-            if (m_exchangeState.isConnected)
-            {
-                ImGui::TextColored(ImVec4(0, 1, 0, 1), "Connected to %s",
-                                   m_exchangeState.exchangeName.c_str());
-            }
-            else
-            {
-                ImGui::TextColored(ImVec4(1, 0, 0, 1), "Disconnected");
-            }
-
-            ImGui::SameLine();
-            ImGui::Text(" | Status: %s", m_exchangeState.connectionStatus.c_str());
-
-            // Add more status information
-            ImGui::SameLine();
-            ImGui::Text(" | Time: %.1f", ImGui::GetTime());
-
-            ImGui::End();
-        }
+        ImGui::OpenPopup("Create New Exchange");
+        m_showCreateNewDialog = false;
     }
 
-    void MainWindow::RenderExchangeList()
+    if (m_showLoadDialog)
     {
-        if (!ImGui::Begin("Exchange List"))
-        {
-            ImGui::End();
-            return;
-        }
+        ImGui::OpenPopup("Load Exchange");
+        m_showLoadDialog = false;
+    }
 
-        // Filter input
-        ImGui::InputText("Filter", m_uiState.symbolFilter, sizeof(m_uiState.symbolFilter));
+    if (m_showConnectDialog)
+    {
+        ImGui::OpenPopup("Connect to Exchange");
+        m_showConnectDialog = false;
+    }
+
+    // Modal dialogs
+    if (ImGui::BeginPopupModal("Create New Exchange", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("Create a new exchange configuration");
         ImGui::Separator();
 
-        // Symbol list
-        for (int i = 0; i < m_exchangeState.availableSymbols.size(); i++)
+        static char exchange_name[128] = "";
+        ImGui::InputText("Exchange Name", exchange_name, sizeof(exchange_name));
+
+        static char exchange_type[128] = "";
+        ImGui::InputText("Exchange Type", exchange_type, sizeof(exchange_type));
+
+        ImGui::Separator();
+
+        if (ImGui::Button("Create", ImVec2(120, 0)))
         {
-            const auto& symbol = m_exchangeState.availableSymbols[i];
-
-            // Apply filter
-            if (strlen(m_uiState.symbolFilter) > 0 &&
-                symbol.find(m_uiState.symbolFilter) == std::string::npos)
-                continue;
-
-            if (ImGui::Selectable(symbol.c_str(), m_uiState.selectedSymbolIndex == i))
-            {
-                m_uiState.selectedSymbolIndex = i;
-            }
+            HandleCreateNewExchange();
+            ImGui::CloseCurrentPopup();
         }
-
-        ImGui::End();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0)))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
-    void MainWindow::RenderOrderBook()
+    if (ImGui::BeginPopupModal("Load Exchange", NULL, ImGuiWindowFlags_AlwaysAutoResize))
     {
-        if (!m_uiState.showOrderBook || !ImGui::Begin("Order Book", &m_uiState.showOrderBook))
+        ImGui::Text("Load an existing exchange configuration");
+        ImGui::Separator();
+
+        static char file_path[256] = "";
+        ImGui::InputText("File Path", file_path, sizeof(file_path));
+        ImGui::SameLine();
+        if (ImGui::Button("Browse"))
         {
-            if (m_uiState.showOrderBook) ImGui::End();
-            return;
+            // TODO: Implement file browser
         }
 
-        if (m_uiState.selectedSymbolIndex >= 0 &&
-            m_uiState.selectedSymbolIndex < m_exchangeState.availableSymbols.size())
+        ImGui::Separator();
+
+        if (ImGui::Button("Load", ImVec2(120, 0)))
         {
-            const auto& symbol = m_exchangeState.availableSymbols[m_uiState.selectedSymbolIndex];
-            ImGui::Text("Order Book for %s", symbol.c_str());
+            HandleLoadExchange();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0)))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopupModal("Connect to Exchange", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+    {
+        ImGui::Text("Connect to a remote exchange");
+        ImGui::Separator();
+
+        static char host_address[128] = "localhost";
+        ImGui::InputText("Host Address", host_address, sizeof(host_address));
+
+        static int port = 8080;
+        ImGui::InputInt("Port", &port);
+
+        static bool use_ssl = false;
+        ImGui::Checkbox("Use SSL/TLS", &use_ssl);
+
+        ImGui::Separator();
+
+        if (ImGui::Button("Connect", ImVec2(120, 0)))
+        {
+            HandleConnectToExchange();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(120, 0)))
+        {
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::End();
+}
+
+void MainWindow::RenderMenuBar()
+{
+    if (ImGui::BeginMenuBar())
+    {
+        if (ImGui::BeginMenu("Exchange"))
+        {
+            if (ImGui::MenuItem("Create New Exchange", "Ctrl+N"))
+            {
+                m_showCreateNewDialog = true;
+            }
+
+            if (ImGui::MenuItem("Load Exchange", "Ctrl+O"))
+            {
+                m_showLoadDialog = true;
+            }
+
             ImGui::Separator();
 
-            // Create table for order book
-            if (ImGui::BeginTable("OrderBookTable", 3, ImGuiTableFlags_Borders))
+            if (ImGui::MenuItem("Connect to Exchange", "Ctrl+C"))
             {
-                ImGui::TableSetupColumn("Price", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-                ImGui::TableSetupColumn("Size", ImGuiTableColumnFlags_WidthFixed, 100.0f);
-                ImGui::TableSetupColumn("Side", ImGuiTableColumnFlags_WidthFixed, 60.0f);
-                ImGui::TableHeadersRow();
-
-                // Add your order book data here
-                for (int i = 0; i < 10; i++)
-                {
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("%.2f", 100.0f + i);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%.1f", 10.0f + i);
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::TextColored(i % 2 ? ImVec4(0, 1, 0, 1) : ImVec4(1, 0, 0, 1),
-                                       i % 2 ? "BUY" : "SELL");
-                }
-
-                ImGui::EndTable();
+                m_showConnectDialog = true;
             }
-        }
-        else
-        {
-            ImGui::Text("Select a symbol to view order book");
+
+            ImGui::Separator();
+
+            if (ImGui::MenuItem("Exit", "Ctrl+Q"))
+            {
+                m_shouldClose = true;
+            }
+
+            ImGui::EndMenu();
         }
 
-        ImGui::End();
+        if (ImGui::BeginMenu("Help"))
+        {
+            if (ImGui::MenuItem("About"))
+            {
+                // TODO: Show about dialog
+            }
+            ImGui::EndMenu();
+        }
+
+        ImGui::EndMenuBar();
     }
+}
 
-    void MainWindow::RenderTradingPanel()
-    {
-        if (!m_uiState.showTradingPanel || !ImGui::Begin("Trading Panel", &m_uiState.showTradingPanel))
-        {
-            if (m_uiState.showTradingPanel) ImGui::End();
-            return;
-        }
+void MainWindow::HandleCreateNewExchange()
+{
+    // TODO: Implement create new exchange logic
+    printf("Create New Exchange requested\n");
+}
 
-        static float orderPrice = 100.0f;
-        static float orderSize = 1.0f;
-        static int orderType = 0; // 0=Market, 1=Limit
-        static int orderSide = 0; // 0=Buy, 1=Sell
+void MainWindow::HandleLoadExchange()
+{
+    // TODO: Implement load exchange logic
+    printf("Load Exchange requested\n");
+}
 
-        ImGui::Text("Place Order");
-        ImGui::Separator();
+void MainWindow::HandleConnectToExchange()
+{
+    // TODO: Implement connect to exchange logic
+    printf("Connect to Exchange requested\n");
+}
 
-        ImGui::Combo("Type", &orderType, "Market\0Limit\0");
-        ImGui::Combo("Side", &orderSide, "Buy\0Sell\0");
+void MainWindow::Shutdown()
+{
+    // Cleanup resources if needed
+}
 
-        if (orderType == 1) // Limit order
-        {
-            ImGui::InputFloat("Price", &orderPrice, 0.01f, 1.0f, "%.2f");
-        }
-
-        ImGui::InputFloat("Size", &orderSize, 0.1f, 1.0f, "%.1f");
-
-        ImGui::Separator();
-
-        ImVec4 buttonColor = orderSide == 0 ? ImVec4(0, 0.7f, 0, 1) : ImVec4(0.7f, 0, 0, 1);
-        ImGui::PushStyleColor(ImGuiCol_Button, buttonColor);
-
-        if (ImGui::Button(orderSide == 0 ? "BUY" : "SELL", ImVec2(-1, 0)))
-        {
-            // Implement order placement logic
-            printf("Placing %s order: Type=%s, Price=%.2f, Size=%.1f\n",
-                   orderSide == 0 ? "BUY" : "SELL",
-                   orderType == 0 ? "Market" : "Limit",
-                   orderPrice, orderSize);
-        }
-
-        ImGui::PopStyleColor();
-
-        ImGui::End();
-    }
-} // gui
+bool MainWindow::ShouldClose() const
+{
+    return m_shouldClose;
+}
+}
